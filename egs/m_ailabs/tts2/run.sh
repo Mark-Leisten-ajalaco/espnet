@@ -102,12 +102,14 @@ org_set=${lang_tag}_${spk_tag}
 train_set=${lang_tag}_${spk_tag}_train
 dev_set=${lang_tag}_${spk_tag}_dev
 eval_set=${lang_tag}_${spk_tag}_eval
+extra_set=${eval_set}_extra # eval set with shuffled speaker embedding
 
 if ${do_trimming}; then
     org_set=${org_set}_trim
     train_set=${train_set}_trim
     dev_set=${dev_set}_trim
     eval_set=${eval_set}_trim
+    [ ! -z ${extra_set} ] && extra_set=${extra_set}_trim
 fi
 
 langs=($(echo ${langs}))
@@ -270,6 +272,15 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     for name in ${train_set} ${dev_set} ${eval_set}; do
         local/update_json.sh ${dumpdir}/${name}/data.json ${nnet_dir}/xvectors_${name}/xvector.scp
     done
+    # Make extra set
+    if [ ! -z ${extra_set} ]; then
+        local/make_extra_json.sh \
+            --dict ${dict} --nlsyms ${nlsyms} \
+            --feats_scp ${feat_ev_dir}/feats.scp \
+            --spk_xvector_scp ${nnet_dir}/xvectors_${train_set}/spk_xvector.scp \
+            --spks "$(echo ${spks[*]})" \
+            data/${eval_set} ${dumpdir}/${extra_set}
+    fi
 fi
 
 if [ -z ${tag} ];then
@@ -367,7 +378,7 @@ fi
 outdir=${expdir}/outputs_${model}_th${threshold}_mlr${minlenratio}-${maxlenratio}
 if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ];then
     echo "stage 4: Decoding"
-    for name in ${dev_set} ${eval_set};do
+    for name in ${dev_set} ${eval_set} ${extra_set};do
         [ ! -e  ${outdir}/${name} ] && mkdir -p ${outdir}/${name}
         cp ${dumpdir}/${name}/data.json ${outdir}/${name}
         splitjson.py --parts ${nj} ${outdir}/${name}/data.json
@@ -392,7 +403,7 @@ fi
 
 if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ];then
     echo "stage 5: Synthesis"
-    for name in ${dev_set} ${eval_set};do
+    for name in ${dev_set} ${eval_set} ${extra_set};do
         [ ! -e ${outdir}_denorm/${name} ] && mkdir -p ${outdir}_denorm/${name}
         apply-cmvn --norm-vars=true --reverse=true data/${train_set}/cmvn.ark \
             scp:${outdir}/${name}/feats.scp \
